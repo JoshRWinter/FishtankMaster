@@ -118,22 +118,40 @@ namespace FishtankMaster
             string name = GetString(tcpin);
             string loc = GetString(tcpin);
 
-            Server server = new Server() { Location = loc, IpAddress = ipaddr, Name = name };
+            tcp.Close();
 
-            bool added;
-            string reason = Add(server, out added);
-            if(!added)
+            try
             {
-                // notify client of failure
-                byte success = 0;
-                tcpout.Write(success);
-                SendString(tcpout, reason);
+                TcpClient connectback = new TcpClient(ipaddr, 28857);
+                if(!connectback.Connected)
+                {
+                    Console.WriteLine("Could not connect back");
+                    return;
+                }
+                var writer = new BinaryWriter(connectback.GetStream());
+                var reader = new BinaryReader(connectback.GetStream());
+
+                Server server = new Server() { Location = loc, IpAddress = ipaddr, Name = name };
+
+                bool added;
+                string reason = Add(server, out added);
+                if(!added)
+                {
+                    // notify client of failure
+                    byte success = 0;
+                    writer.Write(success);
+                    SendString(writer, reason);
+                }
+                else
+                {
+                    // notify client of success
+                    byte success = 1;
+                    writer.Write(success);
+                }
             }
-            else
+            catch(SocketException e)
             {
-                // notify client of success
-                byte success = 1;
-                tcpout.Write(success);
+                Console.WriteLine(ipaddr + ": Couldn't connect back to server: " + e.Message);
             }
         }
 
