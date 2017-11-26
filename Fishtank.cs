@@ -32,7 +32,7 @@ namespace FishtankMaster
 
         // add server to server list
         // called from multiple threads
-        internal string Add(Server server, out bool success)
+        private string Add(Server server, out bool success)
         {
             try
             {
@@ -51,6 +51,7 @@ namespace FishtankMaster
                         return "A server with this IP address already exists in the registry.";
                     }
                 }
+
                 servers.Add(server);
             }
             finally
@@ -61,6 +62,22 @@ namespace FishtankMaster
             Console.WriteLine($"Registered Name: {server.Name}, Location: {server.Location}, IpAddress: {server.IpAddress}");
             success = true;
             return "";
+        }
+
+        private void Remove(Server server)
+        {
+            serversGuard.WaitOne();
+            try
+            {
+                if(!servers.Remove(server))
+                {
+                    Console.WriteLine("Warning: could not remove server \"" + server.Name + "\": not in list");
+                }
+            }
+            finally
+            {
+                serversGuard.ReleaseMutex();
+            }
         }
 
         // process client
@@ -100,6 +117,8 @@ namespace FishtankMaster
                     SendString(tcpout, server.IpAddress);
                     SendString(tcpout, server.Name);
                     SendString(tcpout, server.Location);
+                    byte count = server.Count;
+                    tcpout.Write(count);
                 }
             }
             finally
@@ -111,6 +130,8 @@ namespace FishtankMaster
         // register a server
         private void Register(TcpClient tcp)
         {
+            Server server = null;
+
             BinaryReader tcpin = new BinaryReader(tcp.GetStream());
             BinaryWriter tcpout = new BinaryWriter(tcp.GetStream());
 
@@ -118,20 +139,22 @@ namespace FishtankMaster
             string name = GetString(tcpin);
             string loc = GetString(tcpin);
 
-            tcp.Close();
-
             try
             {
-                TcpClient connectback = new TcpClient(ipaddr, 28857);
+                TcpClient connectback = new TcpClient(ipaddr, 28856);
                 if(!connectback.Connected)
                 {
                     Console.WriteLine("Could not connect back");
                     return;
                 }
-                var writer = new BinaryWriter(connectback.GetStream());
-                var reader = new BinaryReader(connectback.GetStream());
+                else
+                {
+                    var writer = new BinaryWriter(connectback.GetStream());
+                    // tell fishtank-server that this is just a test connection
+                    writer.Write((byte)1);
+                }
 
-                Server server = new Server() { Location = loc, IpAddress = ipaddr, Name = name };
+                server = new Server() { Location = loc, IpAddress = ipaddr, Name = name, Tcp = tcp, Count = 0 };
 
                 bool added;
                 string reason = Add(server, out added);
@@ -139,23 +162,45 @@ namespace FishtankMaster
                 {
                     // notify client of failure
                     byte success = 0;
-                    writer.Write(success);
-                    SendString(writer, reason);
+                    tcpout.Write(success);
+                    SendString(tcpout, reason);
                 }
                 else
                 {
                     // notify client of success
                     byte success = 1;
-                    writer.Write(success);
+                    tcpout.Write(success);
                 }
             }
             catch(SocketException e)
             {
                 Console.WriteLine(ipaddr + ": Couldn't connect back to server: " + e.Message);
+                return;
+            }
+
+            Watch(server);
+        }
+
+        // watch the connection to determine player count and server status
+        private void Watch(Server server)
+        {
+            BinaryReader tcpin = new BinaryReader(server.Tcp.GetStream());
+
+            try
+            {
+                while (true)
+                {
+                    server.Count = tcpin.ReadByte();
+                }
+            }
+            catch(Exception)
+            {
+                Console.WriteLine($"Lost server \"{server.Name}\" ({server.IpAddress}), deregistering...");
+                Remove(server);
             }
         }
 
-        // pull a strincg off the network
+        // pull a string off the network
         private string GetString(BinaryReader reader)
         {
             UInt32 count = reader.ReadUInt32();
