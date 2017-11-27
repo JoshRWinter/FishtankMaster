@@ -89,17 +89,25 @@ namespace FishtankMaster
 
         private void Start(object otcp)
         {
-            var reader = new BinaryReader(((TcpClient)otcp).GetStream());
+            try
+            {
+                var reader = new BinaryReader(((TcpClient)otcp).GetStream());
 
-            // determine if this is a request for server list or registration for new server entry
-            byte type = reader.ReadByte();
-            if(type == 0)
-            {
-                Serve((TcpClient)otcp);
+                // determine if this is a request for server list or registration for new server entry
+                byte type = reader.ReadByte();
+                if (type == 0)
+                {
+                    Serve((TcpClient)otcp);
+                }
+                else
+                {
+                    Register((TcpClient)otcp);
+                }
             }
-            else
+            catch(Exception e)
             {
-                Register((TcpClient)otcp);
+                Console.WriteLine(e.Message);
+                Console.WriteLine(e.StackTrace);
             }
         }
 
