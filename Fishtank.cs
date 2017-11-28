@@ -199,12 +199,28 @@ namespace FishtankMaster
                 while (true)
                 {
                     server.Count = tcpin.ReadByte();
+
+                    // sort
+                    Sort();
                 }
             }
             catch(Exception)
             {
                 Console.WriteLine($"Lost server \"{server.Name}\" ({server.IpAddress}), deregistering...");
                 Remove(server);
+            }
+        }
+
+        private void Sort()
+        {
+            serversGuard.WaitOne();
+            try
+            {
+                servers.Sort();
+            }
+            finally
+            {
+                serversGuard.ReleaseMutex();
             }
         }
 
