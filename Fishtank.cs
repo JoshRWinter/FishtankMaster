@@ -30,28 +30,41 @@ namespace FishtankMaster
             }
         }
 
+        private bool Valid(Server check)
+        {
+            serversGuard.WaitOne();
+            try
+            {
+                foreach(Server server in servers)
+                {
+                    if(server.Name == check.Name || server.IpAddress == check.IpAddress)
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+            finally
+            {
+                serversGuard.ReleaseMutex();
+            }
+        }
+
         // add server to server list
         // called from multiple threads
         private string Add(Server server, out bool success)
         {
+            // see if server alread exists
+            if(!Valid(server))
+            {
+                success = false;
+                return "A server with that name or IP Address already exists in the registry";
+            }
+
             try
             {
                 serversGuard.WaitOne();
-                // see if server alread exists
-                foreach(Server srv in servers)
-                {
-                    if(server.Name == srv.Name)
-                    {
-                        success = false;
-                        return "A server with this name already exists in the registry.";
-                    }
-                    else if(server.IpAddress == srv.IpAddress)
-                    {
-                        success = false;
-                        return "A server with this IP address already exists in the registry.";
-                    }
-                }
-
                 servers.Add(server);
             }
             finally
