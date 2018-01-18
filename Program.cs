@@ -17,6 +17,8 @@ namespace FishtankMaster
                     Console.WriteLine("The kernel is complaining about \"Socket already in use\".\nThis just means to wait a bit, then try again");
                 else
                     Console.WriteLine(e.Message);
+
+                Environment.ExitCode = 1;
             }
             catch(Exception e)
             {

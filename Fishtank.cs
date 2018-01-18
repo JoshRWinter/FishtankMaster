@@ -24,6 +24,7 @@ namespace FishtankMaster
 
         internal void Exec()
         {
+            Console.WriteLine("[ready on tcp:28860 udp:28860]");
             while(true)
             {
                 Handle(tcp.AcceptTcpClient());
