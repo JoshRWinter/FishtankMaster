@@ -13,32 +13,73 @@ namespace FishtankMaster
         private Mutex serversGuard; // protects <servers>
         private List<Server> servers;
         private TcpListener tcp;
+        private UdpClient udp;
 
         internal Fishtank()
         {
             serversGuard = new Mutex();
             servers = new List<Server>();
             tcp = new TcpListener(IPAddress.Any, 28860);
+            udp = new UdpClient(28860);
             tcp.Start();
         }
 
         internal void Exec()
         {
-            Console.WriteLine("[ready on tcp:28860 udp:28860]");
-            while(true)
+            // see if there are any pending requests
+            if (tcp.Pending())
+                new Thread(Process).Start(tcp.AcceptTcpClient());
+
+            // take update from registered server
+            if (udp.Available > 0)
             {
-                Handle(tcp.AcceptTcpClient());
+                IPEndPoint id = new IPEndPoint(IPAddress.Any, 28860);
+                byte[] data = udp.Receive(ref id);
+                bool exists = Update(id.Address.ToString(), data[0]);
+                // send something back
+                if(exists)
+                    udp.Send(new byte[] { 1 }, 1, id);
+            }
+
+            // see if any servers have fallen off the network
+            serversGuard.WaitOne();
+            try
+            {
+                foreach (var server in servers)
+                {
+                    if (UnixTime() - server.LastHeartbeat > 40)
+                    {
+                        if (!servers.Remove(server))
+                            Console.WriteLine($"could not remove server \"{server.Name}\" because it doesn't exist in the registry");
+                        else
+                        {
+                            Console.WriteLine($"lost connection to server \"{server.Name}\"");
+                            break;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                serversGuard.ReleaseMutex();
             }
         }
 
+        internal void Close()
+        {
+            udp.Close();
+            tcp.Stop();
+        }
+
+        // see if the server is a valid server (does not already exist in the registry)
         private bool Valid(Server check)
         {
             serversGuard.WaitOne();
             try
             {
-                foreach(Server server in servers)
+                foreach (Server server in servers)
                 {
-                    if(server.Name == check.Name || server.IpAddress == check.IpAddress)
+                    if (server.Name == check.Name || server.IpAddress == check.IpAddress)
                     {
                         return false;
                     }
@@ -57,7 +98,7 @@ namespace FishtankMaster
         private string Add(Server server, out bool success)
         {
             // see if server alread exists
-            if(!Valid(server))
+            if (!Valid(server))
             {
                 success = false;
                 return "A server with that name or IP Address already exists in the registry";
@@ -78,15 +119,25 @@ namespace FishtankMaster
             return "";
         }
 
-        private void Remove(Server server)
+        // update a server's player count
+        // return true if server exists in registry
+        private bool Update(string ipaddr, int pc)
         {
             serversGuard.WaitOne();
             try
             {
-                if(!servers.Remove(server))
+                foreach (var server in servers)
                 {
-                    Console.WriteLine("Warning: could not remove server \"" + server.Name + "\": not in list");
+                    if (ipaddr == server.IpAddress)
+                    {
+                        server.Count = (byte)pc;
+                        server.LastHeartbeat = UnixTime();
+                        return true;
+                    }
                 }
+
+                Console.WriteLine("couldn't find server " + ipaddr + " in the registry");
+                return false;
             }
             finally
             {
@@ -95,13 +146,7 @@ namespace FishtankMaster
         }
 
         // process client
-        private void Handle(TcpClient tcp)
-        {
-            var thread = new Thread(Start);
-            thread.Start(tcp);
-        }
-
-        private void Start(object otcp)
+        private void Process(object otcp)
         {
             try
             {
@@ -118,10 +163,15 @@ namespace FishtankMaster
                     Register((TcpClient)otcp);
                 }
             }
-            catch(Exception e)
+            catch (IOException) { }
+            catch (Exception e)
             {
                 Console.WriteLine(e.Message);
                 Console.WriteLine(e.StackTrace);
+            }
+            finally
+            {
+                ((TcpClient)otcp).Close();
             }
         }
 
@@ -130,23 +180,35 @@ namespace FishtankMaster
         {
             BinaryWriter tcpout = new BinaryWriter(tcp.GetStream());
 
+            UInt64 serverCount = 0;
+            string serverName = "N/A";
+            string serverIp = "N/A";
+            string serverLocation = "N/A";
+            byte playerCount = 0;
+
             serversGuard.WaitOne();
             try
             {
-                tcpout.Write((UInt64)servers.Count);
-                foreach(Server server in servers)
+                serverCount = (UInt64)servers.Count;
+
+                foreach (Server server in servers)
                 {
-                    SendString(tcpout, server.IpAddress);
-                    SendString(tcpout, server.Name);
-                    SendString(tcpout, server.Location);
-                    byte count = server.Count;
-                    tcpout.Write(count);
+                    serverName = server.Name;
+                    serverIp = server.IpAddress;
+                    serverLocation = server.Location;
+                    playerCount = server.Count;
                 }
             }
             finally
             {
                 serversGuard.ReleaseMutex();
             }
+
+            tcpout.Write(serverCount);
+            SendString(tcpout, serverIp);
+            SendString(tcpout, serverName);
+            SendString(tcpout, serverLocation);
+            tcpout.Write(playerCount);
         }
 
         // register a server
@@ -161,10 +223,11 @@ namespace FishtankMaster
             string name = GetString(tcpin);
             string loc = GetString(tcpin);
 
+            // try to connect back to server to make sure that it is accessible from the public internet
             try
             {
                 TcpClient connectback = new TcpClient(ipaddr, 28856);
-                if(!connectback.Connected)
+                if (!connectback.Connected)
                 {
                     Console.WriteLine("Could not connect back");
                     return;
@@ -175,12 +238,13 @@ namespace FishtankMaster
                     // tell fishtank-server that this is just a test connection
                     writer.Write((byte)1);
                 }
+                connectback.Close();
 
-                server = new Server() { Location = loc, IpAddress = ipaddr, Name = name, Tcp = tcp, Count = 0 };
+                server = new Server() { Location = loc, IpAddress = ipaddr, Name = name, Count = 0, LastHeartbeat = UnixTime() };
 
                 bool added;
                 string reason = Add(server, out added);
-                if(!added)
+                if (!added)
                 {
                     // notify client of failure
                     byte success = 0;
@@ -194,37 +258,14 @@ namespace FishtankMaster
                     tcpout.Write(success);
                 }
             }
-            catch(SocketException e)
+            catch (SocketException e)
             {
                 Console.WriteLine(ipaddr + ": Couldn't connect back to server: " + e.Message);
                 return;
             }
-
-            Watch(server);
         }
 
-        // watch the connection to determine player count and server status
-        private void Watch(Server server)
-        {
-            BinaryReader tcpin = new BinaryReader(server.Tcp.GetStream());
-
-            try
-            {
-                while (true)
-                {
-                    server.Count = tcpin.ReadByte();
-
-                    // sort
-                    Sort();
-                }
-            }
-            catch(Exception)
-            {
-                Console.WriteLine($"Lost server \"{server.Name}\" ({server.IpAddress}), deregistering...");
-                Remove(server);
-            }
-        }
-
+        // sort by number of connected players
         private void Sort()
         {
             serversGuard.WaitOne();
@@ -254,6 +295,11 @@ namespace FishtankMaster
             byte[] data = Encoding.ASCII.GetBytes(s);
             writer.Write((UInt32)s.Length);
             writer.Write(data);
+        }
+
+        private static Int64 UnixTime()
+        {
+            return DateTimeOffset.Now.ToUnixTimeSeconds();
         }
     }
 }

@@ -1,15 +1,32 @@
 ﻿using System;
 using System.Net.Sockets;
+using System.Threading;
 
 namespace FishtankMaster
 {
     class Program
     {
+        private static bool running = true;
+        private static Mutex runningGuard = new Mutex();
+
         static void Main(string[] args)
         {
             try{
                 var fishtank = new Fishtank();
-                fishtank.Exec();
+
+                // register CTRL-C handler
+                Console.CancelKeyPress += new ConsoleCancelEventHandler(Handler);
+
+                Console.WriteLine("[ready on tcp:28860 udp:28860]");
+                while(Working())
+                {
+                    fishtank.Exec();
+                    Thread.Sleep(50);
+                }
+                fishtank.Close();
+                Console.Write("\nexiting...");
+
+                return;
             }
             catch(SocketException e)
             {
@@ -27,6 +44,29 @@ namespace FishtankMaster
 
                 Main(args);
             }
+        }
+
+        private static void Handler(object sender, ConsoleCancelEventArgs args)
+        {
+            args.Cancel = true;
+            Working(false);
+        }
+
+        private static bool Working()
+        {
+            bool cached;
+            runningGuard.WaitOne();
+            cached = running;
+            runningGuard.ReleaseMutex();
+
+            return cached;
+        }
+
+        private static void Working(bool newvalue)
+        {
+            runningGuard.WaitOne();
+            running = newvalue;
+            runningGuard.ReleaseMutex();
         }
     }
 }
