@@ -36,6 +36,7 @@ namespace FishtankMaster
                 IPEndPoint id = new IPEndPoint(IPAddress.Any, 28860);
                 byte[] data = udp.Receive(ref id);
                 bool exists = Update(id.Address.ToString(), data[0]);
+                Sort(); // sorts descending by player count
                 // send something back
                 if(exists)
                     udp.Send(new byte[] { 1 }, 1, id);
