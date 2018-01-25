@@ -42,27 +42,7 @@ namespace FishtankMaster
             }
 
             // see if any servers have fallen off the network
-            serversGuard.WaitOne();
-            try
-            {
-                foreach (var server in servers)
-                {
-                    if (UnixTime() - server.LastHeartbeat > 40)
-                    {
-                        if (!servers.Remove(server))
-                            Console.WriteLine($"could not remove server \"{server.Name}\" because it doesn't exist in the registry");
-                        else
-                        {
-                            Console.WriteLine($"lost connection to server \"{server.Name}\"");
-                            break;
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                serversGuard.ReleaseMutex();
-            }
+            Evaluate();
         }
 
         internal void Close()
@@ -145,6 +125,32 @@ namespace FishtankMaster
             }
         }
 
+        // remove servers that have fallen off the network
+        private void Evaluate()
+        {
+            serversGuard.WaitOne();
+            try
+            {
+                foreach (var server in servers)
+                {
+                    if (UnixTime() - server.LastHeartbeat > 40)
+                    {
+                        if (!servers.Remove(server))
+                            Console.WriteLine($"could not remove server \"{server.Name}\" because it doesn't exist in the registry");
+                        else
+                        {
+                            Console.WriteLine($"lost connection to server \"{server.Name}\"");
+                            break;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                serversGuard.ReleaseMutex();
+            }
+        }
+
         // process client
         private void Process(object otcp)
         {
@@ -154,13 +160,14 @@ namespace FishtankMaster
 
                 // determine if this is a request for server list or registration for new server entry
                 byte type = reader.ReadByte();
-                if (type == 0)
+                switch(type)
                 {
-                    Serve((TcpClient)otcp);
-                }
-                else
-                {
-                    Register((TcpClient)otcp);
+                    case 0:
+                        Serve((TcpClient)otcp);
+                        break;
+                    case 1:
+                        Register((TcpClient)otcp);
+                        break;
                 }
             }
             catch (IOException) { }
@@ -180,35 +187,23 @@ namespace FishtankMaster
         {
             BinaryWriter tcpout = new BinaryWriter(tcp.GetStream());
 
-            UInt64 serverCount = 0;
-            string serverName = "N/A";
-            string serverIp = "N/A";
-            string serverLocation = "N/A";
-            byte playerCount = 0;
-
             serversGuard.WaitOne();
             try
             {
-                serverCount = (UInt64)servers.Count;
+                tcpout.Write((UInt64)servers.Count);
 
                 foreach (Server server in servers)
                 {
-                    serverName = server.Name;
-                    serverIp = server.IpAddress;
-                    serverLocation = server.Location;
-                    playerCount = server.Count;
+                    SendString(tcpout, server.IpAddress);
+                    SendString(tcpout, server.Name);
+                    SendString(tcpout, server.Location);
+                    tcpout.Write(server.Count);
                 }
             }
             finally
             {
                 serversGuard.ReleaseMutex();
             }
-
-            tcpout.Write(serverCount);
-            SendString(tcpout, serverIp);
-            SendString(tcpout, serverName);
-            SendString(tcpout, serverLocation);
-            tcpout.Write(playerCount);
         }
 
         // register a server
