@@ -18,11 +18,13 @@ namespace FishtankMaster
                 Console.CancelKeyPress += new ConsoleCancelEventHandler(Handler);
 
                 Console.WriteLine("[ready on tcp:28860 udp:28860]");
+
                 while(Working())
                 {
                     fishtank.Exec();
-                    Thread.Sleep(50);
+                    Thread.Sleep(210);
                 }
+
                 fishtank.Close();
                 Console.Write("\nexiting...");
 
