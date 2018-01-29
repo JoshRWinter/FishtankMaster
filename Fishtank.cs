@@ -10,14 +10,12 @@ namespace FishtankMaster
 {
     internal class Fishtank
     {
-        private Mutex serversGuard; // protects <servers>
         private List<Server> servers;
         private TcpListener tcp;
         private UdpClient udp;
 
         internal Fishtank()
         {
-            serversGuard = new Mutex();
             servers = new List<Server>();
             tcp = new TcpListener(IPAddress.Any, 28860);
             udp = new UdpClient(28860);
@@ -55,8 +53,7 @@ namespace FishtankMaster
         // see if the server is a valid server (does not already exist in the registry)
         private bool Valid(Server check)
         {
-            serversGuard.WaitOne();
-            try
+            lock(servers)
             {
                 foreach (Server server in servers)
                 {
@@ -67,10 +64,6 @@ namespace FishtankMaster
                 }
 
                 return true;
-            }
-            finally
-            {
-                serversGuard.ReleaseMutex();
             }
         }
 
@@ -85,14 +78,9 @@ namespace FishtankMaster
                 return "A server with that name or IP Address already exists in the registry";
             }
 
-            try
+            lock(servers)
             {
-                serversGuard.WaitOne();
                 servers.Add(server);
-            }
-            finally
-            {
-                serversGuard.ReleaseMutex();
             }
 
             Console.WriteLine($"Registered Name: {server.Name}, Location: {server.Location}, IpAddress: {server.IpAddress}");
@@ -104,8 +92,7 @@ namespace FishtankMaster
         // return true if server exists in registry
         private bool Update(string ipaddr, int pc)
         {
-            serversGuard.WaitOne();
-            try
+            lock(servers)
             {
                 foreach (var server in servers)
                 {
@@ -120,17 +107,12 @@ namespace FishtankMaster
                 Console.WriteLine("couldn't find server " + ipaddr + " in the registry");
                 return false;
             }
-            finally
-            {
-                serversGuard.ReleaseMutex();
-            }
         }
 
         // remove servers that have fallen off the network
         private void Evaluate()
         {
-            serversGuard.WaitOne();
-            try
+            lock(servers)
             {
                 foreach (var server in servers)
                 {
@@ -145,10 +127,6 @@ namespace FishtankMaster
                         }
                     }
                 }
-            }
-            finally
-            {
-                serversGuard.ReleaseMutex();
             }
         }
 
@@ -188,8 +166,7 @@ namespace FishtankMaster
         {
             BinaryWriter tcpout = new BinaryWriter(tcp.GetStream());
 
-            serversGuard.WaitOne();
-            try
+            lock(servers)
             {
                 tcpout.Write((UInt64)servers.Count);
 
@@ -200,10 +177,6 @@ namespace FishtankMaster
                     SendString(tcpout, server.Location);
                     tcpout.Write(server.Count);
                 }
-            }
-            finally
-            {
-                serversGuard.ReleaseMutex();
             }
         }
 
@@ -264,14 +237,9 @@ namespace FishtankMaster
         // sort by number of connected players
         private void Sort()
         {
-            serversGuard.WaitOne();
-            try
+            lock(servers)
             {
                 servers.Sort();
-            }
-            finally
-            {
-                serversGuard.ReleaseMutex();
             }
         }
 

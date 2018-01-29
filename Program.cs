@@ -6,8 +6,7 @@ namespace FishtankMaster
 {
     class Program
     {
-        private static bool running = true;
-        private static Mutex runningGuard = new Mutex();
+        private static volatile bool running = true;
 
         static void Main(string[] args)
         {
@@ -19,7 +18,7 @@ namespace FishtankMaster
 
                 Console.WriteLine("[ready on tcp:28860 udp:28860]");
 
-                while(Working())
+                while(running)
                 {
                     fishtank.Exec();
                     Thread.Sleep(210);
@@ -51,24 +50,7 @@ namespace FishtankMaster
         private static void Handler(object sender, ConsoleCancelEventArgs args)
         {
             args.Cancel = true;
-            Working(false);
-        }
-
-        private static bool Working()
-        {
-            bool cached;
-            runningGuard.WaitOne();
-            cached = running;
-            runningGuard.ReleaseMutex();
-
-            return cached;
-        }
-
-        private static void Working(bool newvalue)
-        {
-            runningGuard.WaitOne();
-            running = newvalue;
-            runningGuard.ReleaseMutex();
+            running = false;
         }
     }
 }
