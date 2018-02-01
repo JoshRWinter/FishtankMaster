@@ -10,16 +10,21 @@ namespace FishtankMaster
 {
     internal class Fishtank
     {
-        private List<Server> servers;
         private TcpListener tcp;
         private UdpClient udp;
+        private Registry registry;
 
         internal Fishtank()
         {
-            servers = new List<Server>();
+            registry = new Registry();
             tcp = new TcpListener(IPAddress.Any, 28860);
             udp = new UdpClient(28860);
             tcp.Start();
+        }
+
+        internal static Int64 UnixTime()
+        {
+            return DateTimeOffset.Now.ToUnixTimeSeconds();
         }
 
         internal void Exec()
@@ -33,10 +38,10 @@ namespace FishtankMaster
             {
                 IPEndPoint id = new IPEndPoint(IPAddress.Any, 28860);
                 byte[] data = udp.Receive(ref id);
-                bool exists = Update(id.Address.ToString(), data[0]);
-                Sort(); // sorts descending by player count
+                bool exists = registry.Update(id.Address.ToString(), data[0]);
+                registry.Sort(); // sorts descending by player count
                 // send something back
-                if(exists)
+                if (exists)
                     udp.Send(new byte[] { 1 }, 1, id);
             }
 
@@ -50,81 +55,21 @@ namespace FishtankMaster
             tcp.Stop();
         }
 
-        // see if the server is a valid server (does not already exist in the registry)
-        private bool Valid(Server check)
-        {
-            lock(servers)
-            {
-                foreach (Server server in servers)
-                {
-                    if (server.Name == check.Name || server.IpAddress == check.IpAddress)
-                    {
-                        return false;
-                    }
-                }
-
-                return true;
-            }
-        }
-
-        // add server to server list
-        // called from multiple threads
-        private string Add(Server server, out bool success)
-        {
-            // see if server alread exists
-            if (!Valid(server))
-            {
-                success = false;
-                return "A server with that name or IP Address already exists in the registry";
-            }
-
-            lock(servers)
-            {
-                servers.Add(server);
-            }
-
-            Console.WriteLine($"Registered Name: {server.Name}, Location: {server.Location}, IpAddress: {server.IpAddress}");
-            success = true;
-            return "";
-        }
-
-        // update a server's player count
-        // return true if server exists in registry
-        private bool Update(string ipaddr, int pc)
-        {
-            lock(servers)
-            {
-                foreach (var server in servers)
-                {
-                    if (ipaddr == server.IpAddress)
-                    {
-                        server.Count = (byte)pc;
-                        server.LastHeartbeat = UnixTime();
-                        return true;
-                    }
-                }
-
-                Console.WriteLine("couldn't find server " + ipaddr + " in the registry");
-                return false;
-            }
-        }
-
         // remove servers that have fallen off the network
         private void Evaluate()
         {
-            lock(servers)
+            List<Server> servers = registry.Get();
+
+            foreach (var server in servers)
             {
-                foreach (var server in servers)
+                if (UnixTime() - server.LastHeartbeat > 40)
                 {
-                    if (UnixTime() - server.LastHeartbeat > 40)
+                    if (!registry.Remove(server.Name))
+                        Console.WriteLine($"could not remove server \"{server.Name}\" because it doesn't exist in the registry");
+                    else
                     {
-                        if (!servers.Remove(server))
-                            Console.WriteLine($"could not remove server \"{server.Name}\" because it doesn't exist in the registry");
-                        else
-                        {
-                            Console.WriteLine($"lost connection to server \"{server.Name}\"");
-                            break;
-                        }
+                        Console.WriteLine($"lost connection to server \"{server.Name}\"");
+                        break;
                     }
                 }
             }
@@ -139,7 +84,7 @@ namespace FishtankMaster
 
                 // determine if this is a request for server list or registration for new server entry
                 byte type = reader.ReadByte();
-                switch(type)
+                switch (type)
                 {
                     case 0:
                         Serve((TcpClient)otcp);
@@ -166,17 +111,15 @@ namespace FishtankMaster
         {
             BinaryWriter tcpout = new BinaryWriter(tcp.GetStream());
 
-            lock(servers)
-            {
-                tcpout.Write((UInt64)servers.Count);
+            List<Server> servers = registry.Get();
+            tcpout.Write((UInt64)servers.Count);
 
-                foreach (Server server in servers)
-                {
-                    SendString(tcpout, server.IpAddress);
-                    SendString(tcpout, server.Name);
-                    SendString(tcpout, server.Location);
-                    tcpout.Write(server.Count);
-                }
+            foreach (Server server in servers)
+            {
+                SendString(tcpout, server.IpAddress);
+                SendString(tcpout, server.Name);
+                SendString(tcpout, server.Location);
+                tcpout.Write(server.Count);
             }
         }
 
@@ -211,10 +154,9 @@ namespace FishtankMaster
 
                 server = new Server() { Location = loc, IpAddress = ipaddr, Name = name, Count = 0, LastHeartbeat = UnixTime() };
 
-                bool added;
-                string reason = Add(server, out added);
-                if (!added)
+                if (!registry.Add(server))
                 {
+                    string reason = registry.Error();
                     // notify client of failure
                     byte success = 0;
                     tcpout.Write(success);
@@ -234,15 +176,6 @@ namespace FishtankMaster
             }
         }
 
-        // sort by number of connected players
-        private void Sort()
-        {
-            lock(servers)
-            {
-                servers.Sort();
-            }
-        }
-
         // pull a string off the network
         private string GetString(BinaryReader reader)
         {
@@ -259,11 +192,6 @@ namespace FishtankMaster
             byte[] data = Encoding.ASCII.GetBytes(s);
             writer.Write((UInt32)s.Length);
             writer.Write(data);
-        }
-
-        private static Int64 UnixTime()
-        {
-            return DateTimeOffset.Now.ToUnixTimeSeconds();
         }
     }
 }

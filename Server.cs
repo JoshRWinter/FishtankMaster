@@ -17,5 +17,10 @@ namespace FishtankMaster
 
             return rhs.Count - Count;
         }
+
+        internal Server Copy()
+        {
+            return new Server() { Name = this.Name, Location = this.Location, IpAddress = this.IpAddress, Count = this.Count, LastHeartbeat = this.LastHeartbeat };
+        }
     }
 }

@@ -10,7 +10,8 @@ namespace FishtankMaster
 
         static void Main(string[] args)
         {
-            try{
+            try
+            {
                 var fishtank = new Fishtank();
 
                 // register CTRL-C handler
@@ -18,7 +19,7 @@ namespace FishtankMaster
 
                 Console.WriteLine("[ready on tcp:28860 udp:28860]");
 
-                while(running)
+                while (running)
                 {
                     fishtank.Exec();
                     Thread.Sleep(210);
@@ -29,16 +30,16 @@ namespace FishtankMaster
 
                 return;
             }
-            catch(SocketException e)
+            catch (SocketException e)
             {
-                if(e.Message.Contains("already in use"))
+                if (e.Message.Contains("already in use"))
                     Console.WriteLine("The kernel is complaining about \"Socket already in use\".\nThis just means to wait a bit, then try again");
                 else
                     Console.WriteLine(e.Message);
 
                 Environment.ExitCode = 1;
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 Console.WriteLine(e.Message);
                 Console.WriteLine(e.StackTrace);
