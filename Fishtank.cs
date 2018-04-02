@@ -14,8 +14,11 @@ namespace FishtankMaster
         private UdpClient udp;
         private Registry registry;
 
+        List<Socket> selectList;
+
         internal Fishtank()
         {
+            selectList = new List<Socket>();
             registry = new Registry();
             tcp = new TcpListener(IPAddress.Any, 28860);
             udp = new UdpClient(28860);
@@ -30,7 +33,11 @@ namespace FishtankMaster
         internal void Exec()
         {
             // see if there are any pending requests
-            if (tcp.Pending())
+            Socket tcpSocket = tcp.Server;
+            selectList.Clear();
+            selectList.Add(tcpSocket);
+            Socket.Select(selectList, null, null, 1000 * 1000);
+            if (selectList.Count > 0 && selectList[0] == tcpSocket && tcp.Pending())
                 new Thread(Process).Start(tcp.AcceptTcpClient());
 
             // take update from registered server

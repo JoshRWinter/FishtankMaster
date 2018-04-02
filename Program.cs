@@ -22,7 +22,6 @@ namespace FishtankMaster
                 while (running)
                 {
                     fishtank.Exec();
-                    Thread.Sleep(210);
                 }
 
                 fishtank.Close();
